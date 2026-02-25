@@ -56,7 +56,7 @@ def train():
 
     model = MLP()
     criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=1)
 
     pred_dict = {10: None, 100: None, 1000: None}
 
