@@ -12,7 +12,6 @@ from torch.utils.data import DataLoader
 #torchvision
 from torchvision import datasets
 from torchvision import transforms
-
 transform = transforms.Compose([
     transforms.ToTensor(),  # 把图片从PIL格式转成PyTorch张量
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # 归一化
@@ -174,7 +173,7 @@ with torch.no_grad():
         _,predicted=torch.max(outputs,1)
         total +=labels.size(0)
         correct +=(predicted==labels).sum().item()
-print(f'\n准确率：{100*correct/total:.2f}%')
+print(f'\nCNN准确率：{100*correct/total:.2f}%')
 
 #损失曲线
 plt.plot(train_losses)
@@ -188,13 +187,65 @@ plt.show(block=True)
 #warmup
 from torch.optim.lr_scheduler import LinearLR,SequentialLR
 optimizer=optim.Adam(model.parameters(),lr=0.001)
-warmup=torch.optim.lr_scheduler.LinearLR(
+scheduler=LinearLR(
     optimizer,
-    start_factor=0.001,
+    start_factor=0.01,
     end_factor=1.0,
-    total_iters=5
+    total_iters=5,
+    last_epoch=-1
 )
+
+def mixup_data(x,y,alpha=1.0):
+    if alpha>0:
+        lam=np.random.beta(alpha,alpha)
+    else:
+        lam=1
+    batch_size=x.size(0)
+    index=torch.randperm(batch_size).to(x.device)
+    mixed_x=lam*x+(1-lam)*x[index]
+    y_a,y_b=y,y[index]
+    return mixed_x,y_a,y_b,lam
+#训练
+print("begin")
+
+train_losses=[]
 for epoch in range(10):
-    warmup.step()
+    model.train()
+    running_loss=0.0
     print(f"当前学习率：{optimizer.param_groups[0]['lr']}")
 
+    for images,labels in train_loader:
+        images,labels=images.to(device),labels.to(device)
+        images,labels_a,labels_b,lam=mixup_data(images,labels,alpha=1.0)
+        outputs=model(images)
+        loss=lam*criterion(outputs,labels_a)+(1-lam)*criterion(outputs,labels_b)
+        loss.backward()
+
+        optimizer.step()
+        print("optimizer")
+        scheduler.step()
+        print("scheduler")
+        optimizer.zero_grad()
+        running_loss += loss.item()
+
+avg_loss = running_loss / len(train_loader)
+train_losses.append(avg_loss)
+print(f'Epoch{epoch+1},Loss:{avg_loss:.4f}')
+
+#测试准确率
+model.eval()
+correct=0
+total=0
+with torch.no_grad():
+    for images,labels in test_loader:
+        images,labels=images.to(device),labels.to(device)
+        outputs=model(images)
+        _,predicted=torch.max(outputs,1)
+        total +=labels.size(0)
+        correct +=(predicted==labels).sum().item()
+
+accuracy=100*correct/total
+print(f"准确率:{accuracy:.2f}%")
+#记录结果
+with open("test4_result.txt","a")as f:
+    f.write(f"warmup(5)+mixup(alpha=1.0),准确率:{accuracy:.2f}%\n")
