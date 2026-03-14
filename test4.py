@@ -191,7 +191,7 @@ scheduler=LinearLR(
     optimizer,
     start_factor=0.01,
     end_factor=1.0,
-    total_iters=5,
+    total_iters=5*len(train_loader),
     last_epoch=-1
 )
 
