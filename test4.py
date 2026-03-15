@@ -102,39 +102,69 @@ for epoch in range(10):
 visualize_predictions(model,test_loader,num_imagines=10)
 
 
-#CNN模型
-class CNN(nn.Module):
+#残差连接
+class ResidualBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, stride, 1)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU()
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, 1, 1)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, 1, stride),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        identity = self.shortcut(x)  # 旁路
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out += identity  # 残差连接
+        out = self.relu(out)
+        return out
+
+
+class ImprovedCNN(nn.Module):
     def __init__(self):
-        super(CNN,self).__init__()
-        self.model=nn.Sequential(
-            #3-16
-            nn.Conv2d(3,16,kernel_size=3,padding=1),
-            nn.ReLU(),
+        super().__init__()
+        self.features = nn.Sequential(
+            # 第一组：3→16，带残差
+            ResidualBlock(3, 16),
             nn.MaxPool2d(2),
-            #16-32
-            nn.Conv2d(16,32,kernel_size=3,padding=1),
-            nn.ReLU(),
+
+            # 第二组：16→32，带残差
+            ResidualBlock(16, 32),
             nn.MaxPool2d(2),
-            #32-64
-            nn.Conv2d(32,64,kernel_size=3,padding=1),
+
+            # 第三组：32→64，带残差
+            ResidualBlock(32, 64),
             nn.MaxPool2d(2),
         )
-        self.fl=nn.Sequential(
+
+        self.classifier = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(64*4*4,256),
+            nn.Linear(64, 256),
             nn.ReLU(),
-            nn.Linear(256,10)
+            nn.Linear(256, 10)
         )
-    def forward(self,x):
-        x=self.model(x)
-        print("卷积后的尺寸",x.shape)
-        x=self.fl(x)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.classifier(x)
         return x
 
 device=torch.device('cuda'if torch.cuda.is_available()else'cpu')
 print(f"Using device:{device}")
-model=CNN()
-model=model.to(device)
+
+model = ImprovedCNN().to(device)
 #损失函数
 criterion=nn.CrossEntropyLoss()
 #优化器
@@ -222,9 +252,7 @@ for epoch in range(10):
         loss.backward()
 
         optimizer.step()
-        print("optimizer")
         scheduler.step()
-        print("scheduler")
         optimizer.zero_grad()
         running_loss += loss.item()
 
@@ -248,4 +276,22 @@ accuracy=100*correct/total
 print(f"准确率:{accuracy:.2f}%")
 #记录结果
 with open("test4_result.txt","a")as f:
-    f.write(f"warmup(5)+mixup(alpha=1.0),准确率:{accuracy:.2f}%\n")
+    f.write(f"warmup(5)+mixup(alpha=1.0),准确率：{accuracy:.2f}%\n")
+
+# 计算参数量和计算量
+from thop import profile, clever_format
+
+model.eval()
+dummy_input = torch.randn(1, 3, 32, 32).to(device)
+flops, params = profile(model, inputs=(dummy_input,), verbose=False)
+flops, params = clever_format([flops, params], "%.3f")
+
+print("\n" + "=" * 50)
+print("模型轻量化指标")
+print("=" * 50)
+print(f"参数量 (Params): {params}")
+print(f"计算量 (FLOPs): {flops}")
+print("=" * 50)
+
+with open("task4_results.txt", "a") as f:
+    f.write(f"参数量: {params}, 计算量: {flops}\n")
